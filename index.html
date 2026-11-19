@@ -35,6 +35,7 @@ body{margin:0;padding:12px;padding-top:calc(12px + env(safe-area-inset-top,0px))
 ul{margin:6px 0 0;padding-left:18px;font-size:14px}
 .nt{border-top:1px solid var(--bd);margin-top:10px;padding-top:8px}
 .nt button,#fg,#fc{font:inherit;font-size:14px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:4px 10px;margin:4px 4px 0 0}
+button.b{font:inherit;font-size:14px;background:var(--ca);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:6px 12px;margin:4px 4px 0 0}
 input,textarea{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:6px;margin-top:6px;width:100%}
 input[type=time]{width:auto}
 </style></head><body>
@@ -44,20 +45,67 @@ input[type=time]{width:auto}
 <div class="g" id="cuad" style="margin-top:3px"></div>
 <div class="card" id="det" style="margin-top:12px" hidden></div>
 <p class="mu" id="act"></p>
+<p class="mu" id="sy"></p>
+<button class="b" id="cf">⚙ Sincronizar notas</button>
+<div class="card" id="cfg" style="margin-top:8px" hidden><div class="mu">Repositorio privado de notas (usuario/notas) y token</div><input id="cr" placeholder="usuario/notas" autocapitalize="none" autocomplete="off"><input id="ct" type="password" placeholder="Token (github_pat_…)" autocomplete="off"><button class="b" id="cg">Guardar y probar</button><button class="b" id="cx">Desconectar</button></div>
 <script>
 const $=s=>document.querySelector(s),pad=n=>String(n).padStart(2,'0');
 const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
 const mins=t=>{const a=t.split(':');return a[0]*60+ +a[1]};
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const DS=['L','M','X','J','V','S','D'];
-let D={festivos:[],turnos:{},dias:{}},cur=new Date(),sel='',ed=-1;cur.setDate(1);cur.setHours(0,0,0,0);
+let D={festivos:[],turnos:{},dias:{}},cur=new Date(),sel='',ed='';cur.setDate(1);cur.setHours(0,0,0,0);
 const hoy=iso(new Date());
-function carga(){try{const n=localStorage.getItem('notas2');if(n)return JSON.parse(n);
+const hs=s=>{let h=5381;for(let i=0;i<s.length;i++)h=((h<<5)+h+s.charCodeAt(i))|0;return (h>>>0).toString(36)};
+const nid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+const ord=(a,b)=>((a.h||'99:99')+a.i)<((b.h||'99:99')+b.i)?-1:1;
+function norm(o){const r={};for(const k in o){r[k]=(o[k]||[]).map(e=>e.i?e:{i:'m'+hs(k+'|'+e.h+'|'+e.t+'|'+e.d),h:e.h||'',t:e.t||'',d:e.d||'',u:0})}return r}
+function carga(){try{const n=localStorage.getItem('notas2');if(n)return norm(JSON.parse(n));
   const o=JSON.parse(localStorage.getItem('notas')||'{}'),r={};
-  for(const k in o)r[k]=[{h:'',t:String(o[k]).slice(0,30),d:String(o[k])}];return r}catch(e){return{}}}
+  for(const k in o)r[k]=[{h:'',t:String(o[k]).slice(0,30),d:String(o[k])}];return norm(r)}catch(e){return{}}}
 let N=carga();
 const guarda=()=>{try{localStorage.setItem('notas2',JSON.stringify(N))}catch(e){}};
-const ord=(a,b)=>(a.h||'99:99')<(b.h||'99:99')?-1:1;
+const vis=k=>(N[k]||[]).filter(e=>!e.x);
+function mezcla(a,b){
+  const r={};
+  new Set([...Object.keys(a),...Object.keys(b)]).forEach(k=>{
+    const m={};
+    [...(a[k]||[]),...(b[k]||[])].forEach(e=>{if(!m[e.i]||(e.u||0)>(m[e.i].u||0))m[e.i]=e});
+    r[k]=Object.values(m).sort(ord);
+  });
+  return Object.fromEntries(Object.keys(r).sort().map(k=>[k,r[k]]));
+}
+const b64e=s=>{let r='';new TextEncoder().encode(s).forEach(c=>r+=String.fromCharCode(c));return btoa(r)};
+const b64d=s=>new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g,'')),c=>c.charCodeAt(0)));
+let SY={};try{SY=JSON.parse(localStorage.getItem('sync')||'{}')}catch(e){}
+let busy=false,again=false;
+const est=s=>{$('#sy').textContent=s};
+async function sinc(){
+  if(!SY.r||!SY.t){est('Notas solo en este aparato. Pulsa ⚙ para sincronizarlas.');return}
+  if(busy){again=true;return}
+  busy=true;est('Sincronizando…');
+  try{
+    const u='https://api.github.com/repos/'+SY.r+'/contents/notas.json';
+    const H={Authorization:'Bearer '+SY.t,Accept:'application/vnd.github+json'};
+    for(let n=0;n<3;n++){
+      const g=await fetch(u,{headers:H,cache:'no-store'});
+      let sha,rem={};
+      if(g.status==200){const j=await g.json();sha=j.sha;rem=JSON.parse(b64d(j.content))}
+      else if(g.status==401)throw new Error('Token no válido o caducado');
+      else if(g.status!=404)throw new Error('Error '+g.status);
+      const m=mezcla(N,rem),s=JSON.stringify(m);
+      N=m;guarda();mes();
+      if(sel&&ed===''&&$('#ft2')&&!$('#ft2').value&&!$('#fd').value)det(sel);
+      if(s===JSON.stringify(rem)){est('Sincronizado ✓');return}
+      const q=await fetch(u,{method:'PUT',headers:H,body:JSON.stringify({message:'notas',content:b64e(s),sha})});
+      if(q.ok){est('Sincronizado ✓');return}
+      if(q.status==409||q.status==422)continue;
+      throw new Error(q.status==401?'Token no válido o caducado':'No se pudo guardar: revisa el nombre del repositorio y los permisos del token');
+    }
+    est('⚠ No se pudo sincronizar, se reintentará');
+  }catch(e){est(e instanceof TypeError?'Sin conexión: la nota se enviará más tarde':'⚠ '+e.message)}
+  finally{busy=false;if(again){again=false;sinc()}}
+}
 function turno(k){
   const x=D.dias[k];if(!x||!x.c)return null;
   const dt=new Date(k+'T00:00'),w=dt.getDay(),f=D.festivos.includes(k);
@@ -93,7 +141,7 @@ function mes(){
   let h='';for(let i=0;i<off;i++)h+='<div></div>';
   const ev=e=>'<s>'+(e.h?esc(e.h)+' ':'')+esc(e.t)+'</s>',hm=s=>s.replace(/^0/,'');
   for(let i=1;i<=n;i++){
-    const k=cur.getFullYear()+'-'+pad(cur.getMonth()+1)+'-'+pad(i),x=D.dias[k]||{},t=turno(k),L=N[k]||[],ok=t&&t.inicio,man=ok&&mins(t.inicio)<720;
+    const k=cur.getFullYear()+'-'+pad(cur.getMonth()+1)+'-'+pad(i),x=D.dias[k]||{},t=turno(k),L=vis(k),ok=t&&t.inicio,man=ok&&mins(t.inicio)<720;
     const st=x.bg?'background:'+x.bg+';color:'+(x.fg||'#000'):'';
     const A=L.filter(e=>e.h&&e.h<'14:00').map(ev).join(''),B=L.filter(e=>!e.h||e.h>='14:00').map(ev).join('');
     const R=ok?'<span class="r"><span class="a">'+hm(t.inicio)+'</span><span class="n">'+esc(x.c)+'</span><span class="f">'+hm(t.fin)+'</span></span>':'';
@@ -104,9 +152,10 @@ function mes(){
     h+='<button class="d'+(k==hoy?' hoy':'')+(x.antes?' act':'')+'" data-k="'+k+'" style="'+st+'"><i>'+i+'</i>'+z+'</button>';
   }
   $('#cuad').innerHTML=h;
+  const sb=sel&&document.querySelector('[data-k="'+sel+'"]');if(sb)sb.classList.add('sel');
 }
 function det(k){
-  sel=k;ed=-1;
+  sel=k;ed='';
   document.querySelectorAll('.d.sel').forEach(e=>e.classList.remove('sel'));
   const b=document.querySelector('[data-k="'+k+'"]');if(b)b.classList.add('sel');
   const x=D.dias[k]||{},t=turno(k),el=$('#det');
@@ -116,7 +165,7 @@ function det(k){
   if(x.antes)h+='<div class="mu">Actualizado (antes: '+esc(x.antes)+')</div>';
   if(t&&t.trenes&&t.trenes.length)h+='<ul>'+t.trenes.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>';
   const d=descanso(k);if(d)h+='<div class="w">'+d+'</div>';
-  (N[k]||[]).forEach((e,i)=>{h+='<div class="nt"><b>'+(e.h?esc(e.h)+' · ':'')+esc(e.t)+'</b>'+(e.d?'<div style="white-space:pre-wrap">'+esc(e.d)+'</div>':'')+'<button data-e="'+i+'">Editar</button><button data-b="'+i+'">Borrar</button></div>'});
+  vis(k).forEach(e=>{h+='<div class="nt"><b>'+(e.h?esc(e.h)+' · ':'')+esc(e.t)+'</b>'+(e.d?'<div style="white-space:pre-wrap">'+esc(e.d)+'</div>':'')+'<button data-e="'+e.i+'">Editar</button><button data-b="'+e.i+'">Borrar</button></div>'});
   h+='<div class="nt"><div class="mu">Añadir nota o clase</div><input type="time" id="fh"><input id="ft2" placeholder="Título (ej. Clase Pablo)" maxlength="40"><textarea id="fd" rows="3" placeholder="Descripción (solo se ve aquí)"></textarea><button id="fg">Guardar</button><button id="fc" hidden>Cancelar</button><div class="mu">Las notas se guardan solo en este móvil.</div></div>';
   el.innerHTML=h;el.hidden=false;
 }
@@ -124,12 +173,22 @@ function refresca(k){mes();det(k)}
 $('#det').onclick=e=>{
   const b=e.target.closest('button');if(!b||!sel)return;
   const k=sel,L=N[k]||[];
-  if(b.dataset.b!=null){L.splice(+b.dataset.b,1);if(L.length)N[k]=L;else delete N[k];guarda();refresca(k)}
-  else if(b.dataset.e!=null){ed=+b.dataset.e;const n=L[ed];$('#fh').value=n.h||'';$('#ft2').value=n.t;$('#fd').value=n.d||'';$('#fc').hidden=false;$('#fg').textContent='Guardar cambios';$('#ft2').focus()}
+  if(b.dataset.b){const n=L.find(x=>x.i==b.dataset.b);if(n){n.x=1;n.t='';n.d='';n.u=Date.now();guarda();refresca(k);sinc()}}
+  else if(b.dataset.e){const n=L.find(x=>x.i==b.dataset.e);if(!n)return;ed=n.i;$('#fh').value=n.h||'';$('#ft2').value=n.t;$('#fd').value=n.d||'';$('#fc').hidden=false;$('#fg').textContent='Guardar cambios';$('#ft2').focus()}
   else if(b.id=='fg'){const t=$('#ft2').value.trim();if(!t){$('#ft2').focus();return}
-    const n={h:$('#fh').value,t,d:$('#fd').value.trim()};if(ed>=0)L[ed]=n;else L.push(n);L.sort(ord);N[k]=L;guarda();refresca(k)}
+    const n={i:ed||nid(),h:$('#fh').value,t,d:$('#fd').value.trim(),u:Date.now()};
+    const j=ed?L.findIndex(x=>x.i==ed):-1;if(j>=0)L[j]=n;else L.push(n);
+    N[k]=L.sort(ord);guarda();refresca(k);sinc()}
   else if(b.id=='fc'){det(k)}
 };
+$('#cf').onclick=()=>{const c=$('#cfg');c.hidden=!c.hidden;$('#cr').value=SY.r||'';$('#ct').value='';$('#ct').placeholder=SY.t?'Token guardado en este aparato':'Token (github_pat_…)'};
+$('#cg').onclick=()=>{
+  const r=$('#cr').value.trim().replace(/^https?:\/\/github\.com\//,'').replace(/\/+$/,''),t=$('#ct').value.trim()||SY.t;
+  if(!/^[\w.-]+\/[\w.-]+$/.test(r)||!t){est('⚠ Escribe el repositorio (usuario/notas) y el token');return}
+  SY={r,t};try{localStorage.setItem('sync',JSON.stringify(SY))}catch(e){}
+  $('#cfg').hidden=true;sinc()};
+$('#cx').onclick=()=>{SY={};try{localStorage.removeItem('sync')}catch(e){}$('#cfg').hidden=true;est('Desconectado. Las notas siguen en este aparato.')};
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)sinc()});
 $('#cuad').onclick=e=>{const b=e.target.closest('[data-k]');if(b)det(b.dataset.k)};
 $('#ant').onclick=()=>{cur.setMonth(cur.getMonth()-1);mes()};
 $('#sig').onclick=()=>{cur.setMonth(cur.getMonth()+1);mes()};
@@ -137,5 +196,5 @@ fetch('datos.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
   D=Object.assign(D,j);
   $('#act').textContent=D.actualizado?'Actualizado: '+D.actualizado+' · punto rojo = día modificado':'';
   prox();mes();if(D.dias[hoy])det(hoy);
-}).catch(()=>{$('#prox').textContent='No se pudo cargar datos.json'});
+}).catch(()=>{$('#prox').textContent='No se pudo cargar datos.json'}).finally(sinc);
 </script></body></html>
