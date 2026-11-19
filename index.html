@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#0b5cad">
+<title>Mis turnos</title>
+<style>
+:root{--bg:#fff;--fg:#1a1a1a;--mu:#666;--ca:#f4f4f4;--bd:#d8d8d8;--ac:#0b5cad;--wa:#b45309}
+@media(prefers-color-scheme:dark){:root{--bg:#121212;--fg:#eee;--mu:#999;--ca:#1e1e1e;--bd:#333;--ac:#6cb2ff;--wa:#fbbf24}}
+*{box-sizing:border-box}
+body{margin:0;padding:12px;padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));background:var(--bg);color:var(--fg);font:16px/1.4 system-ui,sans-serif;max-width:560px;margin-inline:auto}
+.card{background:var(--ca);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+.mu{color:var(--mu);font-size:13px}
+.big{font-size:22px;font-weight:700}
+.nav{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.nav button{background:var(--ca);color:var(--fg);border:1px solid var(--bd);border-radius:8px;font-size:20px;width:44px;height:40px}
+.nav b{text-transform:capitalize}
+.g{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.h{text-align:center;font-size:12px;color:var(--mu)}
+.d{min-height:88px;font:inherit;border:1px solid var(--bd);border-radius:6px;padding:2px 1px;text-align:center;display:flex;flex-direction:column;justify-content:space-between;gap:1px;background:var(--ca);color:var(--fg);position:relative;overflow:hidden;min-width:0}
+.d i{font-style:normal;font-size:10px;opacity:.7;text-align:left;padding-left:2px}
+.z{display:flex;flex-direction:column;gap:1px}
+.m{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center}
+.m.t{justify-content:space-between}
+.o{font-size:13px;font-weight:700;line-height:1.15}
+.d b{font-size:10px;line-height:1.1;font-weight:600}
+.d s{display:block;text-decoration:none;font-size:9px;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:rgba(128,128,128,.3);border-radius:3px;padding:0 2px;text-align:left}
+.d.hoy{outline:2px solid var(--ac)}
+.d.sel{box-shadow:0 0 0 2px var(--fg)}
+.d.act::after{content:"";position:absolute;top:3px;right:3px;width:6px;height:6px;border-radius:50%;background:#e11d48}
+.w{color:var(--wa);font-weight:600;margin-top:6px}
+ul{margin:6px 0 0;padding-left:18px;font-size:14px}
+.nt{border-top:1px solid var(--bd);margin-top:10px;padding-top:8px}
+.nt button,#fg,#fc{font:inherit;font-size:14px;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:4px 10px;margin:4px 4px 0 0}
+input,textarea{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:6px;margin-top:6px;width:100%}
+input[type=time]{width:auto}
+</style></head><body>
+<div class="card" id="prox">Cargando…</div>
+<div class="nav"><button id="ant" aria-label="Mes anterior">‹</button><b id="mes"></b><button id="sig" aria-label="Mes siguiente">›</button></div>
+<div class="g" id="cab"></div>
+<div class="g" id="cuad" style="margin-top:3px"></div>
+<div class="card" id="det" style="margin-top:12px" hidden></div>
+<p class="mu" id="act"></p>
+<script>
+const $=s=>document.querySelector(s),pad=n=>String(n).padStart(2,'0');
+const iso=d=>d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+const mins=t=>{const a=t.split(':');return a[0]*60+ +a[1]};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const DS=['L','M','X','J','V','S','D'];
+let D={festivos:[],turnos:{},dias:{}},cur=new Date(),sel='',ed=-1;cur.setDate(1);cur.setHours(0,0,0,0);
+const hoy=iso(new Date());
+function carga(){try{const n=localStorage.getItem('notas2');if(n)return JSON.parse(n);
+  const o=JSON.parse(localStorage.getItem('notas')||'{}'),r={};
+  for(const k in o)r[k]=[{h:'',t:String(o[k]).slice(0,30),d:String(o[k])}];return r}catch(e){return{}}}
+let N=carga();
+const guarda=()=>{try{localStorage.setItem('notas2',JSON.stringify(N))}catch(e){}};
+const ord=(a,b)=>(a.h||'99:99')<(b.h||'99:99')?-1:1;
+function turno(k){
+  const x=D.dias[k];if(!x||!x.c)return null;
+  const dt=new Date(k+'T00:00'),w=dt.getDay(),f=D.festivos.includes(k);
+  const key=(w==0||f)?x.c+'|DF':w==6?x.c+'|S':x.c;
+  return D.turnos[key]||D.turnos[x.c]||null;
+}
+function descanso(k){
+  const t=turno(k);if(!t||!t.inicio||!t.fin)return '';
+  const n=new Date(k+'T00:00');n.setDate(n.getDate()+1);
+  const t2=turno(iso(n));if(!t2||!t2.inicio)return '';
+  let fin=mins(t.fin);if(fin<mins(t.inicio))fin+=1440;
+  const gap=1440+mins(t2.inicio)-fin;
+  return gap<720?'⚠ Descanso corto: '+Math.floor(gap/60)+' h '+(gap%60)+' min hasta el turno de mañana':'';
+}
+function horas(t){return t&&t.inicio?t.inicio+' – '+t.fin:''}
+function prox(){
+  let d=new Date();d.setHours(0,0,0,0);
+  for(let i=0;i<90;i++){
+    const k=iso(d),x=D.dias[k];
+    if(x&&x.c){
+      const t=turno(k);
+      $('#prox').innerHTML='<div class="mu">'+(i==0?'Hoy':i==1?'Mañana':'Próximo turno · '+d.toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'short'}))+'</div><div class="big">'+esc(x.c)+(t?' · '+horas(t):'')+'</div>'+(x.nota?'<div>'+esc(x.nota)+'</div>':'')+(descanso(k)?'<div class="w">'+descanso(k)+'</div>':'');
+      return;
+    }
+    d.setDate(d.getDate()+1);
+  }
+  $('#prox').textContent='Sin turnos próximos en los datos.';
+}
+function mes(){
+  $('#mes').textContent=cur.toLocaleDateString('es-ES',{month:'long',year:'numeric'});
+  $('#cab').innerHTML=DS.map(x=>'<div class="h">'+x+'</div>').join('');
+  const off=(cur.getDay()+6)%7,n=new Date(cur.getFullYear(),cur.getMonth()+1,0).getDate();
+  let h='';for(let i=0;i<off;i++)h+='<div></div>';
+  const ev=e=>'<s>'+(e.h?esc(e.h)+' ':'')+esc(e.t)+'</s>';
+  for(let i=1;i<=n;i++){
+    const k=cur.getFullYear()+'-'+pad(cur.getMonth()+1)+'-'+pad(i),x=D.dias[k]||{},t=turno(k),L=N[k]||[],ok=t&&t.inicio;
+    const st=x.bg?'background:'+x.bg+';color:'+(x.fg||'#000'):'';
+    const A=L.filter(e=>e.h&&e.h<'14:00').map(ev).join(''),B=L.filter(e=>!e.h||e.h>='14:00').map(ev).join('');
+    const m=ok?'<span class="o">'+esc(t.inicio)+'</span><b>'+esc(x.c)+'</b><span class="o">'+esc(t.fin)+'</span>':'<b>'+esc(x.c||'')+'</b>';
+    h+='<button class="d'+(k==hoy?' hoy':'')+(x.antes?' act':'')+'" data-k="'+k+'" style="'+st+'"><i>'+i+'</i><span class="z">'+A+'</span><span class="m'+(ok?' t':'')+'">'+m+'</span><span class="z">'+B+'</span></button>';
+  }
+  $('#cuad').innerHTML=h;
+}
+function det(k){
+  sel=k;ed=-1;
+  document.querySelectorAll('.d.sel').forEach(e=>e.classList.remove('sel'));
+  const b=document.querySelector('[data-k="'+k+'"]');if(b)b.classList.add('sel');
+  const x=D.dias[k]||{},t=turno(k),el=$('#det');
+  const f=new Date(k+'T00:00').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'});
+  let h='<div class="mu">'+f+'</div><div class="big">'+esc(x.c||'Sin turno')+(t?' · '+horas(t):'')+'</div>';
+  if(x.nota)h+='<div>'+esc(x.nota)+'</div>';
+  if(x.antes)h+='<div class="mu">Actualizado (antes: '+esc(x.antes)+')</div>';
+  if(t&&t.trenes&&t.trenes.length)h+='<ul>'+t.trenes.map(r=>'<li>'+esc(r)+'</li>').join('')+'</ul>';
+  const d=descanso(k);if(d)h+='<div class="w">'+d+'</div>';
+  (N[k]||[]).forEach((e,i)=>{h+='<div class="nt"><b>'+(e.h?esc(e.h)+' · ':'')+esc(e.t)+'</b>'+(e.d?'<div style="white-space:pre-wrap">'+esc(e.d)+'</div>':'')+'<button data-e="'+i+'">Editar</button><button data-b="'+i+'">Borrar</button></div>'});
+  h+='<div class="nt"><div class="mu">Añadir nota o clase</div><input type="time" id="fh"><input id="ft2" placeholder="Título (ej. Clase Pablo)" maxlength="40"><textarea id="fd" rows="3" placeholder="Descripción (solo se ve aquí)"></textarea><button id="fg">Guardar</button><button id="fc" hidden>Cancelar</button><div class="mu">Las notas se guardan solo en este móvil.</div></div>';
+  el.innerHTML=h;el.hidden=false;
+}
+function refresca(k){mes();det(k)}
+$('#det').onclick=e=>{
+  const b=e.target.closest('button');if(!b||!sel)return;
+  const k=sel,L=N[k]||[];
+  if(b.dataset.b!=null){L.splice(+b.dataset.b,1);if(L.length)N[k]=L;else delete N[k];guarda();refresca(k)}
+  else if(b.dataset.e!=null){ed=+b.dataset.e;const n=L[ed];$('#fh').value=n.h||'';$('#ft2').value=n.t;$('#fd').value=n.d||'';$('#fc').hidden=false;$('#fg').textContent='Guardar cambios';$('#ft2').focus()}
+  else if(b.id=='fg'){const t=$('#ft2').value.trim();if(!t){$('#ft2').focus();return}
+    const n={h:$('#fh').value,t,d:$('#fd').value.trim()};if(ed>=0)L[ed]=n;else L.push(n);L.sort(ord);N[k]=L;guarda();refresca(k)}
+  else if(b.id=='fc'){det(k)}
+};
+$('#cuad').onclick=e=>{const b=e.target.closest('[data-k]');if(b)det(b.dataset.k)};
+$('#ant').onclick=()=>{cur.setMonth(cur.getMonth()-1);mes()};
+$('#sig').onclick=()=>{cur.setMonth(cur.getMonth()+1);mes()};
+fetch('datos.json',{cache:'no-store'}).then(r=>r.json()).then(j=>{
+  D=Object.assign(D,j);
+  $('#act').textContent=D.actualizado?'Actualizado: '+D.actualizado+' · punto rojo = día modificado':'';
+  prox();mes();if(D.dias[hoy])det(hoy);
+}).catch(()=>{$('#prox').textContent='No se pudo cargar datos.json'});
+</script></body></html>
